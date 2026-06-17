@@ -7,7 +7,7 @@ Paste any suspicious message — a fake investment offer, prize-winning SMS, ban
 - **Frontend:** Next.js 16 (App Router), Tailwind CSS v4, ShadCN-style UI primitives, Framer Motion
 - **Backend:** Next.js API routes (Node runtime)
 - **AI layer:** Google Gemini API (`gemini-2.5-flash`, free tier) via REST, with a deterministic rule-based heuristic engine as fallback
-- **Database:** SQLite via `better-sqlite3` (scan history)
+- **Database:** Postgres via [Neon](https://neon.tech) (serverless, free tier) using `@neondatabase/serverless` (scan history)
 
 ## Getting started
 
@@ -18,15 +18,17 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### Enabling Gemini analysis
+### Environment variables
 
-By default (no API key set) ScamShield AI uses a built-in rule-based heuristic engine, so the app is fully functional out of the box for demos. To use real Gemini analysis, get a free API key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and create `.env.local`:
+Create `.env.local`:
 
 ```bash
 GEMINI_API_KEY=AIza...
+DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
 ```
 
-If the Gemini call fails for any reason (missing key, rate limit, network error, malformed JSON), the API transparently falls back to the heuristic engine — the user never sees an error.
+- **`GEMINI_API_KEY`** — free key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey). If missing, or the Gemini call fails for any reason (rate limit, network error, malformed JSON), `/api/analyze` transparently falls back to the built-in rule-based heuristic engine — the user never sees an error.
+- **`DATABASE_URL`** — free Postgres connection string from [neon.tech](https://neon.tech). Required for scan history (`/history`) to persist; the `scans` table is created automatically on first use.
 
 ## Architecture
 
@@ -54,7 +56,7 @@ If the Gemini call fails for any reason (missing key, rate limit, network error,
        │                              │                                 │
        │                              └────────────┬────────────────────┘
        │                                            ▼
-       │                                  saveScan() → SQLite (scamshield.db)
+       │                                  saveScan() → Neon Postgres
        └────────────────────────────────────────────┘
 ```
 
@@ -67,7 +69,7 @@ src/
     page.tsx                Home page (Analyzer + SafetyTips)
     globals.css             Tailwind v4 theme tokens, dark mode variant, gradient bg
     history/
-      page.tsx               Server component: reads scan history from SQLite
+      page.tsx               Server component (force-dynamic): reads scan history from Postgres
     api/
       analyze/route.ts        POST — runs AI analysis, persists, returns result
       history/route.ts        GET/DELETE — list / remove past scans
@@ -81,7 +83,7 @@ src/
     ui/                        button, card, textarea, progress, badge (ShadCN-style)
   lib/
     types.ts                   AnalysisResult / ScanRecord types
-    db.ts                       better-sqlite3 setup + CRUD for scans
+    db.ts                       Neon Postgres client + CRUD for scans
     utils.ts                    cn() class merge helper
     ai/
       prompt.ts                 System + user prompt sent to Gemini
@@ -94,9 +96,9 @@ src/
 1. User pastes a message into the textarea.
 2. `Analyzer` posts `{ message }` to `POST /api/analyze`.
 3. The route calls `analyzeMessage()`, which sends the message to Gemini with a strict JSON-only system prompt (see `src/lib/ai/prompt.ts`). If Gemini is unavailable or returns invalid JSON, the heuristic engine (`heuristics.ts`) scores the message using weighted regex rules tuned for Pakistan-specific fraud patterns (Easypaisa/JazzCash, OTP/CNIC harvesting, fake prize draws, guaranteed-return investment scams).
-4. The result is persisted to SQLite (`saveScan`) and returned to the client.
+4. The result is persisted to Neon Postgres (`saveScan`) and returned to the client.
 5. The UI animates in: a circular risk meter, a Safe/Suspicious/Dangerous badge, an animated confidence bar, red flag cards, suspicious phrase chips, a chat-style explanation box, and safety recommendations.
-6. `/history` reads all past scans server-side from SQLite and renders them with delete support.
+6. `/history` reads all past scans server-side from Postgres and renders them with delete support.
 
 ### Risk classification
 
@@ -160,8 +162,16 @@ returns:
 }
 ```
 
+## Deploying to Netlify
+
+1. Create a free Postgres database at [neon.tech](https://neon.tech) and copy its connection string (you've already done this if you're following along with the live project).
+2. Push this repo to GitHub.
+3. On [app.netlify.com](https://app.netlify.com), "Add new site" → "Import an existing project" → connect the GitHub repo. Netlify auto-detects Next.js and installs its Next.js Runtime plugin — no extra config needed.
+4. In Site settings → Environment variables, add `GEMINI_API_KEY` and `DATABASE_URL`.
+5. Deploy. API routes run as Netlify serverless functions; Postgres (not the filesystem) is what makes scan history persist across deploys and function invocations.
+
 ## Bonus / future scope
 
-- **Saved history** — implemented (`/history`, SQLite-backed, delete support).
+- **Saved history** — implemented (`/history`, Postgres-backed via Neon, delete support).
 - **Share result as image** — not implemented; could use `html-to-image` on the results card.
 - **Browser extension** — future scope: a content script could scan SMS/clipboard text and call `/api/analyze` directly, surfacing a badge overlay for Dangerous messages.

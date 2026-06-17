@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { result, source } = await analyzeMessage(message);
-  const saved = saveScan(message, result);
+  const saved = await saveScan(message, result);
 
   return NextResponse.json({ ...saved, source });
 }

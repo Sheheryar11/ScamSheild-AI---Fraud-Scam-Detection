@@ -1,8 +1,10 @@
 import { getAllScans } from "@/lib/db";
 import { HistoryList } from "@/components/history-list";
 
-export default function HistoryPage() {
-  const scans = getAllScans(50);
+export const dynamic = "force-dynamic";
+
+export default async function HistoryPage() {
+  const scans = await getAllScans(50);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 sm:py-16">
