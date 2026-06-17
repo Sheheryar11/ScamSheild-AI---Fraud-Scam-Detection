@@ -1,6 +1,7 @@
 # ScamShield AI — Fraud & Scam Detection System
 
 Paste any suspicious message — a fake investment offer, prize-winning SMS, bank phishing link, or JazzCash/Easypaisa fraud attempt — and ScamShield AI analyzes it for scam intent, assigns a risk score, and explains the red flags in plain language.
+Live Link: https://scamsheild-ai.netlify.app/
 
 ## Tech stack
 
