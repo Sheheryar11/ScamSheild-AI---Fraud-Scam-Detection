@@ -15,3 +15,7 @@ export interface ScanRecord extends AnalysisResult {
   message: string;
   created_at: string;
 }
+
+export interface AnalyzeResponse extends ScanRecord {
+  source: "gemini" | "heuristic";
+}

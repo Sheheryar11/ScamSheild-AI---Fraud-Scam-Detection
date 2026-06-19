@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, ScanSearch, ShieldAlert, ShieldCheck, ShieldQuestion, Sparkles, Quote } from "lucide-react";
+import { Loader2, ScanSearch, ShieldAlert, ShieldCheck, ShieldQuestion, Sparkles, Quote, BrainCircuit, Calculator } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { RiskMeter } from "@/components/risk-meter";
 import { RedFlagCard } from "@/components/red-flag-card";
-import type { AnalysisResult, RiskLevel } from "@/lib/types";
+import type { AnalyzeResponse, RiskLevel } from "@/lib/types";
 
 const LEVEL_META: Record<RiskLevel, { icon: typeof ShieldCheck; badge: "safe" | "suspicious" | "dangerous"; label: string }> = {
   Safe: { icon: ShieldCheck, badge: "safe", label: "Safe" },
@@ -21,7 +21,7 @@ const LEVEL_META: Record<RiskLevel, { icon: typeof ShieldCheck; badge: "safe" | 
 export function Analyzer() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleAnalyze() {
@@ -124,6 +124,21 @@ export function Analyzer() {
                     <Badge variant={meta.badge} className="text-sm">
                       {meta.label}
                     </Badge>
+                    <span
+                      className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-muted-foreground"
+                      title={
+                        result.source === "gemini"
+                          ? "Analyzed by Gemini AI with RAG-retrieved scam pattern context"
+                          : "Gemini was unavailable (e.g. quota limit) — analyzed by the rule-based fallback engine instead"
+                      }
+                    >
+                      {result.source === "gemini" ? (
+                        <BrainCircuit className="h-3.5 w-3.5" />
+                      ) : (
+                        <Calculator className="h-3.5 w-3.5" />
+                      )}
+                      {result.source === "gemini" ? "AI analysis" : "Rule-based fallback"}
+                    </span>
                   </div>
 
                   <div>
