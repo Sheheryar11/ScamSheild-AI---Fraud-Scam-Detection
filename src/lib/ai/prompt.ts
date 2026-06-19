@@ -22,6 +22,12 @@ Respond with ONLY valid JSON, no markdown, no commentary, matching exactly this 
   "recommendations": string[]
 }`;
 
-export function buildUserPrompt(message: string): string {
-  return `Analyze the following message for scam or fraud indicators:\n\n"""\n${message}\n"""\n\nReturn only the JSON object described in your instructions.`;
+export function buildUserPrompt(message: string, contextDocs: { title: string; content: string }[] = []): string {
+  const context = contextDocs.length
+    ? `\n\nRelevant known scam patterns that may be related (use only if actually relevant, do not assume the message matches them):\n${contextDocs
+        .map((doc) => `- ${doc.title}: ${doc.content}`)
+        .join("\n")}`
+    : "";
+
+  return `Analyze the following message for scam or fraud indicators:\n\n"""\n${message}\n"""${context}\n\nReturn only the JSON object described in your instructions.`;
 }

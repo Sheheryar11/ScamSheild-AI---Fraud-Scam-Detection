@@ -1,14 +1,16 @@
-# ScamShield AI — Fraud & Scam Detection System
+# ScamShield AI — Fraud & Scam Detection System (RAG + LLM)
 
-Paste any suspicious message — a fake investment offer, prize-winning SMS, bank phishing link, or JazzCash/Easypaisa fraud attempt — and ScamShield AI analyzes it for scam intent, assigns a risk score, and explains the red flags in plain language.
+Paste any suspicious message — a fake investment offer, prize-winning SMS, bank phishing link, or JazzCash/Easypaisa fraud attempt — and ScamShield AI analyzes it for scam intent, assigns a risk score, and explains the red flags in plain language. Detection is powered by a **RAG (Retrieval-Augmented Generation) pipeline**: known Pakistan-specific scam patterns are embedded and stored in Postgres (pgvector), retrieved by similarity at request time, and injected as grounding context into the Gemini LLM call.
+
 Live Link: https://scamsheild-ai.netlify.app/
 
 ## Tech stack
 
 - **Frontend:** Next.js 16 (App Router), Tailwind CSS v4, ShadCN-style UI primitives, Framer Motion
 - **Backend:** Next.js API routes (Node runtime)
-- **AI layer:** Google Gemini API (`gemini-2.5-flash`, free tier) via REST, with a deterministic rule-based heuristic engine as fallback
-- **Database:** Postgres via [Neon](https://neon.tech) (serverless, free tier) using `@neondatabase/serverless` (scan history)
+- **AI layer (LLM):** Google Gemini API (`gemini-2.5-flash`, free tier) via REST, with a deterministic rule-based heuristic engine as fallback
+- **RAG layer:** Gemini embeddings (`gemini-embedding-001`) + a curated Pakistan-scam knowledge base, stored and similarity-searched via `pgvector` on Neon; retrieved context is injected into the Gemini prompt before analysis (`src/lib/rag/`)
+- **Database:** Postgres via [Neon](https://neon.tech) (serverless, free tier) using `@neondatabase/serverless` (scan history + RAG vector store)
 
 ## Getting started
 
@@ -28,8 +30,18 @@ GEMINI_API_KEY=AIza...
 DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
 ```
 
-- **`GEMINI_API_KEY`** — free key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey). If missing, or the Gemini call fails for any reason (rate limit, network error, malformed JSON), `/api/analyze` transparently falls back to the built-in rule-based heuristic engine — the user never sees an error.
-- **`DATABASE_URL`** — free Postgres connection string from [neon.tech](https://neon.tech). Required for scan history (`/history`) to persist; the `scans` table is created automatically on first use.
+- **`GEMINI_API_KEY`** — free key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Used for both the LLM analysis call and the RAG embeddings. If missing, or the Gemini call fails for any reason (rate limit, network error, malformed JSON), `/api/analyze` transparently falls back to the built-in rule-based heuristic engine — the user never sees an error.
+- **`DATABASE_URL`** — free Postgres connection string from [neon.tech](https://neon.tech). Required for scan history (`/history`) and the RAG vector store; the `scans` and `scam_knowledge` (pgvector) tables are created automatically on first use.
+
+### Seeding the RAG knowledge base
+
+The first time you run the app (or whenever `src/lib/rag/knowledge.ts` changes), seed the scam-pattern embeddings into Postgres:
+
+```bash
+curl -X POST http://localhost:3000/api/rag/seed
+```
+
+This embeds each knowledge-base doc with Gemini and upserts it into the `scam_knowledge` pgvector table. It's idempotent — safe to call again; it only re-embeds docs that changed.
 
 ## Architecture
 
@@ -72,8 +84,9 @@ src/
     history/
       page.tsx               Server component (force-dynamic): reads scan history from Postgres
     api/
-      analyze/route.ts        POST — runs AI analysis, persists, returns result
+      analyze/route.ts        POST — runs RAG retrieval + AI analysis, persists, returns result
       history/route.ts        GET/DELETE — list / remove past scans
+      rag/seed/route.ts        POST — embeds and (re)seeds the scam knowledge base into Postgres
   components/
     analyzer.tsx              Main client component: input, results
     risk-meter.tsx             Animated circular risk gauge (Framer Motion + SVG)
@@ -87,19 +100,24 @@ src/
     db.ts                       Neon Postgres client + CRUD for scans
     utils.ts                    cn() class merge helper
     ai/
-      prompt.ts                 System + user prompt sent to Gemini
-      analyze.ts                Orchestrates Gemini call → JSON parse → fallback
+      prompt.ts                 System + user prompt sent to Gemini (RAG context injected here)
+      analyze.ts                Orchestrates RAG retrieval → Gemini call → JSON parse → fallback
       heuristics.ts              Rule-based scam detector (works with no API key)
+      embeddings.ts              Gemini embeddings client (gemini-embedding-001)
+    rag/
+      knowledge.ts               Curated Pakistan-scam pattern knowledge base (RAG source docs)
+      store.ts                   pgvector table + seed + similarity retrieval (Neon Postgres)
 ```
 
-### Request pipeline (input → LLM → UI)
+### Request pipeline (input → RAG → LLM → UI)
 
 1. User pastes a message into the textarea.
 2. `Analyzer` posts `{ message }` to `POST /api/analyze`.
-3. The route calls `analyzeMessage()`, which sends the message to Gemini with a strict JSON-only system prompt (see `src/lib/ai/prompt.ts`). If Gemini is unavailable or returns invalid JSON, the heuristic engine (`heuristics.ts`) scores the message using weighted regex rules tuned for Pakistan-specific fraud patterns (Easypaisa/JazzCash, OTP/CNIC harvesting, fake prize draws, guaranteed-return investment scams).
-4. The result is persisted to Neon Postgres (`saveScan`) and returned to the client.
-5. The UI animates in: a circular risk meter, a Safe/Suspicious/Dangerous badge, an animated confidence bar, red flag cards, suspicious phrase chips, a chat-style explanation box, and safety recommendations.
-6. `/history` reads all past scans server-side from Postgres and renders them with delete support.
+3. The route calls `analyzeMessage()`, which first runs the **RAG retrieval step**: the message is embedded (`src/lib/ai/embeddings.ts`) and compared via cosine similarity against the scam-pattern knowledge base stored in Postgres/pgvector (`src/lib/rag/store.ts`). The top matching patterns are injected as extra context into the Gemini prompt (`src/lib/ai/prompt.ts`).
+4. Gemini (`gemini-2.5-flash`) returns a strict JSON-only response grounded in that retrieved context. If Gemini is unavailable, returns invalid JSON, or retrieval fails, the heuristic engine (`heuristics.ts`) scores the message using weighted regex rules tuned for Pakistan-specific fraud patterns (Easypaisa/JazzCash, OTP/CNIC harvesting, fake prize draws, guaranteed-return investment scams) as a fallback.
+5. The result is persisted to Neon Postgres (`saveScan`) and returned to the client.
+6. The UI animates in: a circular risk meter, a Safe/Suspicious/Dangerous badge, an animated confidence bar, red flag cards, suspicious phrase chips, a chat-style explanation box, and safety recommendations.
+7. `/history` reads all past scans server-side from Postgres and renders them with delete support.
 
 ### Risk classification
 

@@ -1,6 +1,7 @@
 import type { AnalysisResult, RiskLevel } from "@/lib/types";
 import { SYSTEM_PROMPT, buildUserPrompt } from "./prompt";
 import { heuristicAnalyze } from "./heuristics";
+import { retrieveSimilarDocs } from "@/lib/rag/store";
 
 const RISK_LEVELS: RiskLevel[] = ["Safe", "Suspicious", "Dangerous"];
 const GEMINI_MODEL = "gemini-2.5-flash";
@@ -33,13 +34,17 @@ function parseModelJson(raw: string): AnalysisResult | null {
   }
 }
 
-async function callGemini(apiKey: string, message: string): Promise<string | null> {
+async function callGemini(
+  apiKey: string,
+  message: string,
+  contextDocs: { title: string; content: string }[]
+): Promise<string | null> {
   const response = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [{ role: "user", parts: [{ text: buildUserPrompt(message) }] }],
+      contents: [{ role: "user", parts: [{ text: buildUserPrompt(message, contextDocs) }] }],
       generationConfig: { response_mime_type: "application/json" },
     }),
   });
@@ -58,7 +63,14 @@ export async function analyzeMessage(message: string): Promise<{ result: Analysi
 
   if (apiKey) {
     try {
-      const text = await callGemini(apiKey, message);
+      let contextDocs: { title: string; content: string }[] = [];
+      try {
+        contextDocs = await retrieveSimilarDocs(message);
+      } catch (error) {
+        console.error("RAG retrieval failed, continuing without context:", error);
+      }
+
+      const text = await callGemini(apiKey, message, contextDocs);
       if (text) {
         const parsed = parseModelJson(text);
         if (parsed) {

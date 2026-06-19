@@ -15,9 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ScamShield AI — Fraud & Scam Detection",
+  title: "ScamShield AI — Fraud & Scam Detection (RAG + LLM)",
   description:
-    "Paste any suspicious message and let ScamShield AI detect scam patterns, assign a risk score, and explain the red flags in plain language.",
+    "Paste any suspicious message and let ScamShield AI detect scam patterns, assign a risk score, and explain the red flags in plain language — powered by a RAG pipeline (Gemini embeddings + Neon pgvector) feeding a Gemini LLM.",
 };
 
 export default function RootLayout({
